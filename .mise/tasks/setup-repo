@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# mise description="Setup repository from template."
+set -e # Exit on error
+
+# Get variables from input
+main() {
+  clear
+  echo "This script will setup the template repository by replacing the template variables."
+  echo "You will need the following information:"
+  echo "- Repository name (ie. 'example-repo' in https://github.com/octocat/example-repo/)."
+  echo "- Repository owner name (ie. 'octocat' in https://github.com/octocat/example-repo/)."
+  echo "- GitHub token with with 'pages:write' and 'administration:write' permissions to repository."
+  echo ""
+
+  # Get variables from user input
+  read -p "Enter repository name: " REPO
+  read -p "Enter repository owner name: " OWNER
+  read -p "Enter repository token with 'pages:write' and 'administration:write' permissions: " TOKEN
+  read -p "Enter single sentance repository description: " DESCRIPTION
+  read -p "Enter python minor version to use ie. '3.12': " PYTHON_VERSION
+
+  clear
+  echo "Repository name: ${REPO}"
+  echo "Repository owner name: ${OWNER}"
+  echo "Repository description: ${DESCRIPTION}"
+  echo "Python minor version: ${PYTHON_VERSION}"
+  echo "Repository token ending with: ${TOKEN: -5}"
+  read -p "Proceed with the following values? (y/n): " choice
+
+  case "$choice" in 
+    [yY]|[yY][eE][sS] ) run_setup;;
+    * ) exit;;
+  esac
+}
+
+run_setup () {
+  configure_repository
+  render_template
+}
+
+# Render repository template variables.
+render_template () {
+  echo "Rendering template variables in repository..."
+  # Rename package directory.
+  mv REPO ${REPO}
+  # Replace README with TEMPLATE_README
+  mv TEMPLATE_README.md README.md
+  # Render template variables in files.
+  variables=( 
+    '\$\$REPO\$\$',"${REPO}"
+    '\$\$OWNER\$\$',"${OWNER}"
+    '\$\$PYTHON_VERSION\$\$',"${PYTHON_VERSION}"
+    '\$\$DESCRIPTION\$\$',"${DESCRIPTION}"
+  )
+  IFS=',' # Turns each $i into $1 and $2 separated by ','
+  for i in "${variables[@]}"
+  do
+    set -- $i
+    echo "Replacing '${1}' with '${2}'"
+    case $(uname -s) in
+      *[Dd]arwin* | *BSD* ) # Because some people have to "Think Different(TM)"
+        find ./ -type f -exec sed -i '' "s/${1}/${2}/g" {} \; ;;
+      *)
+        find ./ -type f -exec sed -i "s/${1}/${2}/g" {} \; ;;
+    esac
+  done
+  
+  echo "Installing tools with mise..."
+  # Run these manually instead of `mise run init` so we can generate poetry lock file after tool install.
+  mise install
+  poetry lock # Generate lock file
+  poetry install --sync
+
+  echo "Committing changes..."
+  git add -A
+  git commit -m"Render repository template variables"
+
+  echo ""
+  echo "All done!"
+  echo ""
+  echo "Optional Next Steps:"
+  echo "- Add users to the CODEOWNERS file."
+  echo "- Choose a license: https://choosealicense.com/. If changing from the default (Apache 2.0), change the 'LICENSE' file in the repository root and update the 'pyproject.toml' file's 'license' and 'classifiers' fields."
+  echo "- Add a secret with name 'PYPI_TOKEN' and value of your Pypi token to enable CICD package publish to Pypi."
+  echo "- Add pages to the documentation by adding Markdown files to '/docs' and updating the 'mkdocs.yml' file's 'nav' section. See the Material for MkDocs guide: https://squidfunk.github.io/mkdocs-material/getting-started/."
+  echo ""
+}
+
+# Configure Repository settings
+configure_repository () {
+  # Requires token with permissions: administration:write
+  # https://docs.github.com/en/rest/repos/repos?apiVersion=2022-11-28#update-a-repository
+  echo ""
+  echo "Configuring repository settings..."
+  echo "- Add description."
+  echo "- Set homepage to documentation."
+  echo "- Enable GitHub Issues."
+  echo "- Require squash merge and set merge commit title as PR title and message as PR description."
+  echo "- Delete branch on merge."
+  curl -L \
+    --silent \
+    --output /dev/null \
+    --show-error \
+    --fail \
+    -X PATCH \
+    -H "Accept: application/vnd.github+json" \
+    -H "Authorization: Bearer ${TOKEN}" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    https://api.github.com/repos/${OWNER}/${REPO} \
+    -d '{"description":"$$DESCRIPTION$$","homepage":"https://$$OWNER$$.github.io/$$REPO$$/","has_issues":true,"allow_squash_merge":true,"allow_merge_commit":false,"allow_rebase_merge":false,"squash_merge_commit_title":"PR_TITLE","squash_merge_commit_message":"PR_BODY","delete_branch_on_merge":true}'
+
+  # Configure main branch protection rules
+  # Requires token with permissions: administration:write
+  # https://docs.github.com/en/rest/branches/branch-protection?apiVersion=2022-11-28#update-branch-protection
+  echo ""
+  echo "Setting main branch protection rules..."
+  echo "- Require CICD status checks to pass."
+  echo "- Require 1 review from a Code Owner that did not commit the last push."
+  echo "- Require linear commit history."
+  echo "- Dismiss stale reviews."
+  echo "- Lock branch."
+  echo "- Enable fork syncing."
+  echo "- Enforce rules for admins."
+  curl -L \
+    --silent \
+    --output /dev/null \
+    --show-error \
+    --fail \
+    -X PUT \
+    -H "Accept: application/vnd.github+json" \
+    -H "Authorization: Bearer ${TOKEN}" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    https://api.github.com/repos/${OWNER}/${REPO}/branches/main/protection \
+    -d '{"required_status_checks":{"strict":true,"checks":[{"context":"cicd"}]},"enforce_admins":true,"required_pull_request_reviews":{"dismiss_stale_reviews":true,"require_code_owner_reviews":true,"required_approving_review_count":1,"require_last_push_approval":true},"restrictions":null,"required_linear_history":true,"allow_force_pushes":false,"allow_deletions":false,"block_creations":false,"required_conversation_resolution":false,"lock_branch":true,"allow_fork_syncing":true}'
+}
+
+# Run main function.
+main

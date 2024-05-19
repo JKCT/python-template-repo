@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# mise description="Build and publish package to Pypi."
+set -e # Exit on error
+
+VERSION=$(poetry version --short)
+
+# [Add a secret](https://github.com/$$OWNER$$/$$REPO$$/settings/secrets/actions/new) with name `PYPI_TOKEN` and value of [your Pypi token](https://pypi.org/help/#apitoken) to enable CICD package publish to Pypi.
+echo "Building and publishing package to Pypi: '${VERSION}'..."
+# If Pypi token is not saved load it from first argument.
+if [[ ! -f ~/.pypirc ]]
+then
+  PYPI_TOKEN=$1 # Expect first argument is PYPI_TOKEN.
+  if [[ -z ${PYPI_TOKEN} ]] # If argument is not supplied.
+    echo "ERROR: First publish run requires argument PYPI_TOKEN."
+    echo "Usage: mise run publish [PYPI_TOKEN]"
+    echo "After first run token will be saved to ~/.pypirc."
+    exit 1
+  then
+    poetry config pypi-token.pypi ${PYPI_TOKEN}
+  else
+  fi
+fi
+# Build and publish to Pypi
+poetry publish --build

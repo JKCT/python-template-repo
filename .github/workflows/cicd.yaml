@@ -1,0 +1,51 @@
+name: CICD
+on:
+  pull_request: # https://docs.github.com/en/webhooks/webhook-events-and-payloads#pull_request
+    types: [opened, reopened, synchronize] # A PR was created, re-opened, or head branch was updated.
+  push: # https://docs.github.com/en/webhooks/webhook-events-and-payloads#push
+    branches: [main] # Changes were merged/pushed to main.
+  release: # https://docs.github.com/en/webhooks/webhook-events-and-payloads?actionType=released#release
+    types: [released] # A release was published, or a pre-release was changed to a release.
+
+permissions:
+  contents: write # Create releases and publish to pages
+
+jobs:
+  cicd:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Include main branch for version update check
+
+      - name: Install Mise
+        run: |
+          curl https://mise.jdx.dev/install.sh | sh
+          echo "$HOME/.local/share/mise/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/share/mise/shims" >> $GITHUB_PATH
+
+      - name: Install Dependencies
+        run: mise run init
+
+      - name: Lint
+        run: mise run lint
+
+      - name: Test
+        run: mise run test
+
+      - name: Automatic Release
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          mise run release ${{ secrets.GITHUB_TOKEN }}
+
+      # Run if automatic release (push) or manual release (release)
+      # Automatic run (push) will not trigger another action (relase) run.
+      - name: Publish Documentation
+        if: ${{ github.event_name == 'push' || github.event_name == 'release' }}
+        run: mise run docs
+
+      - name: Publish Package
+        if: ${{ github.event_name == 'push' || github.event_name == 'release' }}
+        run: |
+          mise run publish ${{ secrets.PYPI_TOKEN }}

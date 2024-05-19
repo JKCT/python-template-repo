@@ -1,0 +1,55 @@
+[tools]
+python = "$$PYTHON_VERSION$$"
+"pipx:poetry" = "latest"
+
+[settings]
+jobs = 8 # number of plugins or runtimes to install in parallel. The default is `4`.
+experimental = true # enable experimental features
+# Install a default list of packages when installing python (adds pipx before poetry install)
+python_default_packages_file = ".default-python-packages"
+
+[tasks.init]
+description = "Run tool setup and install packages."
+run = [ # multiple commands are run in series
+    "mise install",
+    "poetry install --sync",
+]
+
+[tasks.run]
+description = 'Run package main file.'
+run = "poetry run python -B $$REPO$$"
+
+[tasks.pr]
+description = 'Run all pull request checks.'
+depends = ["format", "lint", "test"]
+
+[tasks.format]
+description = 'Run code formatting.'
+depends = ["format:*"]
+[tasks."format:black"] # using a ":" means we need to add quotes
+description = 'Format python code with black.'
+run = "poetry run black $$REPO$$ tests"
+
+[tasks.lint]
+description = 'Run code linting checks.'
+depends = ["lint:*"]
+[tasks."lint:poetry"]
+description = 'Check that poetry lockfile is up to date.'
+run = "poetry check"
+[tasks."lint:black"]
+description = 'Check that python files are formatted with black.'
+run = "poetry run black --check $$REPO$$ tests"
+[tasks."lint:pylint"]
+description = 'Check that python files are linted with pylint.'
+run = "poetry run pylint mypak tests"
+[tasks."lint:mypy"]
+description = 'Check python file typing with mypy.'
+run = "poetry run mypy $$REPO$$ tests"
+
+[tasks.test]
+description = 'Run code tests.'
+run = "poetry run python -B -m pytest"
+
+[tasks.docs]
+description = 'Deploy documentation to GitHub Pages.'
+run = "poetry run mkdocs gh-deploy --force"
